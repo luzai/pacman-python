@@ -64,8 +64,8 @@ ghostcolor[3] = (255, 128, 0, 255)
 ghostcolor[4] = (50, 50, 255, 255) # blue, vulnerable ghost
 ghostcolor[5] = (255, 255, 255, 255) # white, flashing ghost
 
-# Level 1 is a safe intro: ghosts stay blue/vulnerable and never harm Pac-Man.
-# Original first maze is now level 2. Pass --start-level 2 (or --level 2) to skip the intro.
+# Level 1 is a safe intro: no ghosts and no fruit (pellet collecting only).
+# Pass --start-level 2 (or --level 2) to skip the intro.
 SAFE_LEVEL_NUM = 1
 DEFAULT_START_LEVEL = 1
 
@@ -225,7 +225,7 @@ class game ():
         self.imHiscores = self.makehiscorelist()
         
     def IsSafeLevel (self):
-        """True on the intro level where ghosts are always vulnerable."""
+        """True on level 1: no ghosts and no fruit."""
         return self.levelNum == SAFE_LEVEL_NUM
 
     def StartNewGame (self):
@@ -254,7 +254,8 @@ class game ():
         for i in range(0, self.lives, 1):
             screen.blit (self.imLife, (24 + i * 10 + 16, self.screenSize[1] - 12) )
             
-        screen.blit (thisFruit.imFruit[ thisFruit.fruitType ], (4 + 16, self.screenSize[1] - 20) )
+        if not self.IsSafeLevel():
+            screen.blit (thisFruit.imFruit[ thisFruit.fruitType ], (4 + 16, self.screenSize[1] - 20) )
             
         if self.mode == 3:
             screen.blit (self.imGameOver, (self.screenSize[0] / 2 - 32, self.screenSize[1] / 2 - 10) )
@@ -922,6 +923,8 @@ class pacman ():
 
     def CheckGhostCollisions (self):
         """Resolve pacman/ghost overlaps. Cushion matches one tile so mid-cell ghosts still count."""
+        if thisGame.IsSafeLevel():
+            return
         if thisGame.mode != 1:
             return
 
@@ -985,26 +988,27 @@ class pacman ():
                         ghosts[i].state = 1
                 thisGame.ghostValue = 0
                 
-        # deal with fruit timer
-        thisGame.fruitTimer += 1
-        if thisGame.fruitTimer == 500:
-            pathwayPair = thisLevel.GetPathwayPairPos()
-            
-            if not pathwayPair == False:
-            
-                pathwayEntrance = pathwayPair[0]
-                pathwayExit = pathwayPair[1]
+        # deal with fruit timer (disabled on safe intro level)
+        if not thisGame.IsSafeLevel():
+            thisGame.fruitTimer += 1
+            if thisGame.fruitTimer == 500:
+                pathwayPair = thisLevel.GetPathwayPairPos()
                 
-                thisFruit.active = True
+                if not pathwayPair == False:
                 
-                thisFruit.nearestRow = pathwayEntrance[0]
-                thisFruit.nearestCol = pathwayEntrance[1]
-                
-                thisFruit.x = thisFruit.nearestCol * 16
-                thisFruit.y = thisFruit.nearestRow * 16
-                
-                thisFruit.currentPath = path.FindPath( (thisFruit.nearestRow, thisFruit.nearestCol), pathwayExit )
-                thisFruit.FollowNextPathWay()
+                    pathwayEntrance = pathwayPair[0]
+                    pathwayExit = pathwayPair[1]
+                    
+                    thisFruit.active = True
+                    
+                    thisFruit.nearestRow = pathwayEntrance[0]
+                    thisFruit.nearestCol = pathwayEntrance[1]
+                    
+                    thisFruit.x = thisFruit.nearestCol * 16
+                    thisFruit.y = thisFruit.nearestRow * 16
+                    
+                    thisFruit.currentPath = path.FindPath( (thisFruit.nearestRow, thisFruit.nearestCol), pathwayExit )
+                    thisFruit.FollowNextPathWay()
             
         if thisGame.fruitScoreTimer > 0:
             thisGame.fruitScoreTimer -= 1
@@ -1386,14 +1390,25 @@ class level ():
     def Restart (self):
         
         for i in range(0, 4, 1):
-            # move ghosts back to home
+            # move ghosts back to home (or hide them on the safe intro level)
+
+            if thisGame.IsSafeLevel():
+                ghosts[i].x = -64
+                ghosts[i].y = -64
+                ghosts[i].velX = 0
+                ghosts[i].velY = 0
+                ghosts[i].state = 4  # inactive / not drawn
+                ghosts[i].speed = 1
+                ghosts[i].currentPath = False
+                ghosts[i].nearestRow = -1
+                ghosts[i].nearestCol = -1
+                continue
 
             ghosts[i].x = ghosts[i].homeX
             ghosts[i].y = ghosts[i].homeY
             ghosts[i].velX = 0
             ghosts[i].velY = 0
-            # safe intro level: ghosts start (and stay) vulnerable/blue
-            ghosts[i].state = 2 if thisGame.IsSafeLevel() else 1
+            ghosts[i].state = 1
             ghosts[i].speed = 1
             ghosts[i].Move()
             
@@ -1411,9 +1426,8 @@ class level ():
         thisFruit.active = False
             
         thisGame.fruitTimer = 0
-        if thisGame.IsSafeLevel():
-            thisGame.ghostValue = 200
-            thisGame.ghostTimer = 0
+        thisGame.ghostValue = 0
+        thisGame.ghostTimer = 0
 
         player.x = player.homeX
         player.y = player.homeY
@@ -1506,28 +1520,30 @@ def GetCrossRef ():
             if not thisID in NO_GIF_TILES:
                 tileIDImage[ thisID ] = pygame.image.load(os.path.join(SCRIPT_PATH,"res","tiles",str_splitBySpace[1] + ".gif")).convert()
             else:
-                    tileIDImage[ thisID ] = pygame.Surface((16,16))
+                tileIDImage[ thisID ] = pygame.Surface((16,16))
             
             # change colors in tileIDImage to match maze colors
-            for y in range(0, 16, 1):
-                for x in range(0, 16, 1):
+            # Skip remapping for coin-based pellet art (keep gold colors).
+            if str_splitBySpace[1] not in ("pellet", "pellet-power"):
+                for y in range(0, 16, 1):
+                    for x in range(0, 16, 1):
                 
-                    if tileIDImage[ thisID ].get_at( (x, y) ) == (255, 206, 255, 255):
-                        # wall edge
-                        tileIDImage[ thisID ].set_at( (x, y), thisLevel.edgeLightColor )
+                        if tileIDImage[ thisID ].get_at( (x, y) ) == (255, 206, 255, 255):
+                            # wall edge
+                            tileIDImage[ thisID ].set_at( (x, y), thisLevel.edgeLightColor )
                         
-                    elif tileIDImage[ thisID ].get_at( (x, y) ) == (132, 0, 132, 255):
-                        # wall fill
-                        tileIDImage[ thisID ].set_at( (x, y), thisLevel.fillColor ) 
+                        elif tileIDImage[ thisID ].get_at( (x, y) ) == (132, 0, 132, 255):
+                            # wall fill
+                            tileIDImage[ thisID ].set_at( (x, y), thisLevel.fillColor ) 
                         
-                    elif tileIDImage[ thisID ].get_at( (x, y) ) == (255, 0, 255, 255):
-                        # pellet color
-                        tileIDImage[ thisID ].set_at( (x, y), thisLevel.edgeShadowColor )   
+                        elif tileIDImage[ thisID ].get_at( (x, y) ) == (255, 0, 255, 255):
+                            # pellet color
+                            tileIDImage[ thisID ].set_at( (x, y), thisLevel.edgeShadowColor )   
                         
-                    elif tileIDImage[ thisID ].get_at( (x, y) ) == (128, 0, 128, 255):
-                        # pellet color
-                        tileIDImage[ thisID ].set_at( (x, y), thisLevel.pelletColor )   
-                
+                        elif tileIDImage[ thisID ].get_at( (x, y) ) == (128, 0, 128, 255):
+                            # pellet color
+                            tileIDImage[ thisID ].set_at( (x, y), thisLevel.pelletColor )   
+                                
             # print str_splitBySpace[0] + " is married to " + str_splitBySpace[1]
         lineNum += 1
 
@@ -1632,11 +1648,12 @@ while True:
         
         thisGame.modeTimer += 1
         player.Move()
-        for i in range(0, 4, 1):
-            ghosts[i].Move()
-        # After ghosts move: catch overlaps (ghost walking onto pacman)
-        player.CheckGhostCollisions()
-        thisFruit.Move()
+        if not thisGame.IsSafeLevel():
+            for i in range(0, 4, 1):
+                ghosts[i].Move()
+            # After ghosts move: catch overlaps (ghost walking onto pacman)
+            player.CheckGhostCollisions()
+            thisFruit.Move()
             
     elif thisGame.mode == 2:
         # waiting after getting hit by a ghost
@@ -1722,8 +1739,10 @@ while True:
                 thisGame.DrawNumber (2500, thisFruit.x - thisGame.screenPixelPos[0] - 16, thisFruit.y - thisGame.screenPixelPos[1] + 4)
 
         for i in range(0, 4, 1):
-            ghosts[i].Draw()
-        thisFruit.Draw()
+            if not thisGame.IsSafeLevel():
+                ghosts[i].Draw()
+        if not thisGame.IsSafeLevel():
+            thisFruit.Draw()
         player.Draw()
         
         if thisGame.mode == 3:
