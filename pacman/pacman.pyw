@@ -1737,6 +1737,10 @@ while True:
     thisGame.DrawScore()
     
     pygame.display.flip()
-    WriteAgentState()
+    # Only publish agent state during active play / level-clear.
+    # Writing during game-over / death pause republishes spawn+full pellets
+    # and confuses external agents reading agent_state.json.
+    if thisGame.mode in (1, 6):
+        WriteAgentState()
     
     clock.tick (60)
