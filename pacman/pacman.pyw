@@ -13,7 +13,7 @@
 # - Added joystick support (configure by changing JS_* constants)
 # - Added a high-score list. Depends on wx for querying the user's name
 
-import pygame, sys, os, random
+import pygame, sys, os, random, json
 from pygame.locals import *
 
 # WIN???
@@ -894,6 +894,7 @@ class pacman ():
         newCol = int(((newX + 8) / 16))
         
         if thisLevel.CheckIfHitWall(newX, newY, newRow, newCol):
+            WriteAgentState()
             return False
         
         self.x = newX
@@ -916,6 +917,7 @@ class pacman ():
                 snd_eatfruit.play()
         
         self.SnapToGrid()
+        WriteAgentState()
         return True
 
     def CheckGhostCollisions (self):
@@ -1422,6 +1424,7 @@ class level ():
         
         player.anim_pacmanCurrent = player.anim_pacmanS
         player.animFrame = 3
+        WriteAgentState()
 
 
 def CheckIfCloseButton(events):
@@ -1551,10 +1554,63 @@ tileIDName = {} # gives tile name (when the ID# is known)
 tileID = {} # gives tile ID (when the name is known)
 tileIDImage = {} # gives tile image (when the ID# is known)
 
+AGENT_STATE_PATH = os.path.join(SCRIPT_PATH, "agent_state.json")
+
+
+def WriteAgentState():
+    """Export Pac-Man grid pose + wall map for external agents (MaaPacman)."""
+    try:
+        row = int(player.nearestRow)
+        col = int(player.nearestCol)
+        player.SnapToGrid()
+        row = int(player.nearestRow)
+        col = int(player.nearestCol)
+
+        delta = {"U": (-1, 0), "D": (1, 0), "L": (0, -1), "R": (0, 1)}
+        blocked = []
+        open_dirs = []
+        for d, (dr, dc) in delta.items():
+            nr, nc = row + dr, col + dc
+            if thisLevel.IsWall(nr, nc):
+                blocked.append(d)
+            else:
+                open_dirs.append(d)
+
+        walls = []
+        for r in range(thisLevel.lvlHeight):
+            for c in range(thisLevel.lvlWidth):
+                if thisLevel.IsWall(r, c):
+                    walls.append([r, c])
+
+        facing = player.lastMoveDir if player.lastMoveDir in delta else "S"
+        state = {
+            "row": row,
+            "col": col,
+            "facing": facing,
+            "level": int(thisGame.GetLevelNum()),
+            "mode": int(thisGame.mode),
+            "width": int(thisLevel.lvlWidth),
+            "height": int(thisLevel.lvlHeight),
+            "pellets": int(thisLevel.pellets),
+            "blocked": blocked,
+            "open": open_dirs,
+            "walls": walls,
+        }
+        tmp = AGENT_STATE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, separators=(",", ":"))
+            f.write("\n")
+        os.replace(tmp, AGENT_STATE_PATH)
+    except Exception:
+        # Never crash the game for agent I/O failures.
+        pass
+
+
 # create game and level objects and load first level
 thisGame = game()
 thisLevel = level()
 thisLevel.LoadLevel( thisGame.GetLevelNum() )
+WriteAgentState()
 
 window = pygame.display.set_mode( thisGame.screenSize, pygame.DOUBLEBUF | pygame.HWSURFACE )
 
@@ -1681,5 +1737,6 @@ while True:
     thisGame.DrawScore()
     
     pygame.display.flip()
+    WriteAgentState()
     
     clock.tick (60)
