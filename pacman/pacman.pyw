@@ -64,8 +64,8 @@ ghostcolor[3] = (255, 128, 0, 255)
 ghostcolor[4] = (50, 50, 255, 255) # blue, vulnerable ghost
 ghostcolor[5] = (255, 255, 255, 255) # white, flashing ghost
 
-# Level 1 is a safe intro: no ghosts and no fruit (pellet collecting only).
-# Pass --start-level 2 (or --level 2) to skip the intro.
+# Level 1 still skips fruit; ghosts are always present and move turn-based
+# (one ghost step per successful Pac-Man step).
 SAFE_LEVEL_NUM = 1
 DEFAULT_START_LEVEL = 1
 
@@ -225,7 +225,7 @@ class game ():
         self.imHiscores = self.makehiscorelist()
         
     def IsSafeLevel (self):
-        """True on level 1: no ghosts and no fruit."""
+        """True on level 1: fruit off; ghosts move turn-based (1 step per Pac-Man step)."""
         return self.levelNum == SAFE_LEVEL_NUM
 
     def StartNewGame (self):
@@ -485,7 +485,8 @@ class path_finder ():
         
     def CalcH (self, val):
         row,col = val
-        self.map[ self.Unfold(row, col) ].h = abs(row - self.end[0]) + abs(col - self.end[0])
+        # Manhattan distance to end (col must use end[1], not end[0])
+        self.map[ self.Unfold(row, col) ].h = abs(row - self.end[0]) + abs(col - self.end[1])
         
     def CalcF (self, val):
         row,col = val
@@ -508,12 +509,13 @@ class path_finder ():
             return False
         
     def GetLowestFNode (self):
-        lowestValue = 1000 # start arbitrarily high
+        lowestValue = None
         lowestPair = (-1, -1)
         
         for iOrderedPair in self.openList:
-            if self.GetF( iOrderedPair ) < lowestValue:
-                lowestValue = self.GetF( iOrderedPair )
+            f = self.GetF( iOrderedPair )
+            if lowestValue is None or f < lowestValue:
+                lowestValue = f
                 lowestPair = iOrderedPair
         
         if not lowestPair == (-1, -1):
@@ -626,8 +628,8 @@ class ghost ():
             screen.blit (self.anim[ self.animFrame ], (self.x - thisGame.screenPixelPos[0], self.y - thisGame.screenPixelPos[1]))
         elif self.state == 2:
             # draw vulnerable ghost
-            if thisGame.IsSafeLevel() or thisGame.ghostTimer > 100:
-                # blue (always on safe intro level)
+            if thisGame.ghostTimer > 100:
+                # blue
                 screen.blit (ghosts[4].anim[ self.animFrame ], (self.x - thisGame.screenPixelPos[0], self.y - thisGame.screenPixelPos[1]))
             else:
                 # blue/white flashing
@@ -657,6 +659,7 @@ class ghost ():
             self.animDelay = 0
             
     def Move (self):
+        """Continuous pixel move (levels 2+). Level 1 uses StepOneCell instead."""
         
         if self.state == 4:
             return
@@ -678,10 +681,182 @@ class ghost ():
             else:
                 self.x = self.nearestCol * 16
                 self.y = self.nearestRow * 16
-            
-                # chase pac-man
-                self.currentPath = path.FindPath( (self.nearestRow, self.nearestCol), (player.nearestRow, player.nearestCol) )
+
+                # Leave the pen first; then chase Pac-Man.
+                if self.state != 3 and self.IsInGhostHouse():
+                    self.currentPath = path.FindPath(
+                        (self.nearestRow, self.nearestCol),
+                        self.GhostHouseExitTile(),
+                    )
+                else:
+                    self.currentPath = path.FindPath(
+                        (self.nearestRow, self.nearestCol),
+                        (player.nearestRow, player.nearestCol),
+                    )
                 self.FollowNextPathWay()
+
+    def StepOneCell (self):
+        """Advance exactly one grid cell (called once per Pac-Man step on level 1).
+        Eyes (state 3) may also be stepped every frame so they return to the box."""
+        if self.state == 4:
+            return False
+
+        self.nearestRow = int(((self.y + 8) / 16))
+        self.nearestCol = int(((self.x + 8) / 16))
+        self.x = self.nearestCol * 16
+        self.y = self.nearestRow * 16
+        self.velX = 0
+        self.velY = 0
+
+        in_house = self.IsInGhostHouse()
+        in_pen = self.IsInGhostPen()
+
+        if self.state == 3:
+            # Eyes: run to the pen, then revive.
+            pen = self.GhostPenTile()
+            if in_pen or (self.nearestRow, self.nearestCol) == pen:
+                self.state = 1
+                self.speed = 1
+                self.currentPath = ""
+                in_house = True
+                target = self.GhostHouseExitTile()
+            else:
+                target = pen
+        elif in_house:
+            # Always leave the pen before chasing (fixes softlock in base).
+            target = self.GhostHouseExitTile()
+        else:
+            target = (player.nearestRow, player.nearestCol)
+
+        # Already on Pac-Man — stay; collision handles death.
+        if self.state != 3 and not in_house and (self.nearestRow, self.nearestCol) == target:
+            return False
+
+        # Already outside above the door — chase Pac-Man this step.
+        if in_house and self.state != 3 and (self.nearestRow, self.nearestCol) == target:
+            target = (player.nearestRow, player.nearestCol)
+            in_house = False
+
+        delta = {"U": (0, -16), "D": (0, 16), "L": (-16, 0), "R": (16, 0)}
+
+        def try_step(direction):
+            if direction not in delta:
+                return None
+            dx, dy = delta[direction]
+            nx = self.x + dx
+            ny = self.y + dy
+            nrow = int(((ny + 8) / 16))
+            ncol = int(((nx + 8) / 16))
+            if thisLevel.IsWall(nrow, ncol):
+                return None
+            # Chasing ghosts must not walk back into the pen.
+            # Eyes (state 3) are allowed in so they can return home.
+            if self.state == 1 and not in_house and self.TileInGhostHouse(nrow, ncol):
+                return None
+            return nx, ny, nrow, ncol
+
+        self.currentPath = path.FindPath(
+            (self.nearestRow, self.nearestCol), target
+        )
+
+        landed = None
+        if self.currentPath:
+            landed = try_step(self.currentPath[0])
+
+        # Still in the pen: prefer the door / up, then any open neighbor.
+        if landed is None and in_house and self.state != 3:
+            door = thisLevel.GetGhostBoxPos()
+            prefer = []
+            if door:
+                dr, dc = door
+                if self.nearestCol < dc:
+                    prefer.append("R")
+                elif self.nearestCol > dc:
+                    prefer.append("L")
+                prefer.append("U")
+            for d in prefer + ["L", "R", "U", "D"]:
+                landed = try_step(d)
+                if landed is not None:
+                    break
+
+        if landed is None:
+            # Eyes returning home: bias toward the pen / door.
+            if self.state == 3:
+                door = thisLevel.GetGhostBoxPos()
+                prefer = []
+                if door:
+                    dr, dc = door
+                    if self.nearestRow > dr:
+                        prefer.append("U")
+                    elif self.nearestRow < dr:
+                        prefer.append("D")
+                    if self.nearestCol > dc:
+                        prefer.append("L")
+                    elif self.nearestCol < dc:
+                        prefer.append("R")
+                for d in prefer + ["U", "D", "L", "R"]:
+                    landed = try_step(d)
+                    if landed is not None:
+                        break
+            else:
+                dirs = ["U", "D", "L", "R"]
+                random.shuffle(dirs)
+                for d in dirs:
+                    landed = try_step(d)
+                    if landed is not None:
+                        break
+
+        if landed is None:
+            return False
+
+        self.x, self.y, self.nearestRow, self.nearestCol = landed
+        self.currentPath = ""
+        return True
+
+    def TileInGhostHouse (self, row, col):
+        """True for ghost-door tile or the 3 pen cells under it."""
+        door = thisLevel.GetGhostBoxPos()
+        if not door:
+            return False
+        dr, dc = door
+        if (row, col) == (dr, dc):
+            return True
+        if row == dr + 1 and abs(col - dc) <= 1 and not thisLevel.IsWall(row, col):
+            return True
+        return False
+
+    def IsInGhostHouse (self):
+        return self.TileInGhostHouse(self.nearestRow, self.nearestCol)
+
+    def IsInGhostPen (self):
+        """True only for the 3 cells under the door (not the door tile itself)."""
+        door = thisLevel.GetGhostBoxPos()
+        if not door:
+            return False
+        dr, dc = door
+        return (
+            self.nearestRow == dr + 1
+            and abs(self.nearestCol - dc) <= 1
+            and not thisLevel.IsWall(self.nearestRow, self.nearestCol)
+        )
+
+    def GhostPenTile (self):
+        """Center cell inside the pen (under the door)."""
+        door = thisLevel.GetGhostBoxPos()
+        if not door:
+            return (int(self.homeY / 16), int(self.homeX / 16))
+        return (door[0] + 1, door[1])
+
+    def GhostHouseExitTile (self):
+        """Tile just above the door — first square outside the pen."""
+        door = thisLevel.GetGhostBoxPos()
+        if not door:
+            return (self.nearestRow, self.nearestCol)
+        dr, dc = door
+        above = (dr - 1, dc)
+        if not thisLevel.IsWall(above[0], above[1]):
+            return above
+        return (dr, dc)
             
     def FollowNextPathWay (self):
         
@@ -712,10 +887,8 @@ class ghost ():
             
             else:
                 # glasses found way back to ghost box
-                self.state = 2 if thisGame.IsSafeLevel() else 1
+                self.state = 1
                 self.speed = self.speed / 4
-                if thisGame.IsSafeLevel() and thisGame.ghostValue < 200:
-                    thisGame.ghostValue = 200
                 
                 # give ghost a path to a random spot (containing a pellet)
                 (randRow, randCol) = (0, 0)
@@ -897,6 +1070,8 @@ class pacman ():
         if thisLevel.CheckIfHitWall(newX, newY, newRow, newCol):
             WriteAgentState()
             return False
+
+        oldRow, oldCol = self.nearestRow, self.nearestCol
         
         self.x = newX
         self.y = newY
@@ -907,8 +1082,7 @@ class pacman ():
         self.velY = 0
         
         thisLevel.CheckIfHitSomething(self.x, self.y, self.nearestRow, self.nearestCol)
-        self.CheckGhostCollisions()
-        
+
         if thisFruit.active == True:
             if thisLevel.CheckIfHit(self.x, self.y, thisFruit.x, thisFruit.y, 8):
                 thisGame.AddToScore(2500)
@@ -916,15 +1090,45 @@ class pacman ():
                 thisGame.fruitTimer = 0
                 thisGame.fruitScoreTimer = 120
                 snd_eatfruit.play()
-        
+
+        # Level 1: turn-based ghosts. Check before they move (stepped onto them),
+        # then after (they stepped onto us), plus tile-swap crossings.
+        if thisGame.IsSafeLevel():
+            self.CheckGhostCollisions()
+            if thisGame.mode != 1:
+                self.SnapToGrid()
+                WriteAgentState()
+                return True
+
+            ghost_prev = [
+                (ghosts[i].nearestRow, ghosts[i].nearestCol) for i in range(0, 4, 1)
+            ]
+            for i in range(0, 4, 1):
+                ghosts[i].StepOneCell()
+
+            # Pac-Man and ghost swapped tiles in one turn — still a hit.
+            if thisGame.mode == 1:
+                for i in range(0, 4, 1):
+                    if ghosts[i].state != 1:
+                        continue
+                    if (
+                        ghost_prev[i] == (self.nearestRow, self.nearestCol)
+                        and (ghosts[i].nearestRow, ghosts[i].nearestCol) == (oldRow, oldCol)
+                    ):
+                        thisGame.SetMode(2)
+                        break
+
+            if thisGame.mode == 1:
+                self.CheckGhostCollisions()
+        else:
+            self.CheckGhostCollisions()
+
         self.SnapToGrid()
         WriteAgentState()
         return True
 
     def CheckGhostCollisions (self):
-        """Resolve pacman/ghost overlaps. Cushion matches one tile so mid-cell ghosts still count."""
-        if thisGame.IsSafeLevel():
-            return
+        """Resolve pacman/ghost overlaps. Same tile or close pixels both count."""
         if thisGame.mode != 1:
             return
 
@@ -932,7 +1136,6 @@ class pacman ():
         for i in range(0, 4, 1):
             if ghosts[i].state == 4:
                 continue
-            # Same tile always counts (ghost may be mid-pixel between cells)
             same_tile = (
                 ghosts[i].nearestRow == self.nearestRow
                 and ghosts[i].nearestCol == self.nearestCol
@@ -940,10 +1143,10 @@ class pacman ():
             if not same_tile and not thisLevel.CheckIfHit(self.x, self.y, ghosts[i].x, ghosts[i].y, cushion):
                 continue
 
-            if ghosts[i].state == 1 and not thisGame.IsSafeLevel():
+            if ghosts[i].state == 1:
                 thisGame.SetMode(2)
                 return
-            elif ghosts[i].state == 2 or (ghosts[i].state == 1 and thisGame.IsSafeLevel()):
+            elif ghosts[i].state == 2:
                 if thisGame.ghostValue < 200:
                     thisGame.ghostValue = 200
                 thisGame.AddToScore(thisGame.ghostValue)
@@ -951,8 +1154,9 @@ class pacman ():
                 snd_eatgh.play()
 
                 if thisGame.IsSafeLevel():
-                    # intro level: ghost disappears for good
+                    # Level 1: ghost disappears completely (no eyes return).
                     ghosts[i].state = 4
+                    ghosts[i].speed = 1
                     ghosts[i].velX = 0
                     ghosts[i].velY = 0
                     ghosts[i].currentPath = False
@@ -965,11 +1169,16 @@ class pacman ():
                     ghosts[i].speed = ghosts[i].speed * 4
                     ghosts[i].x = ghosts[i].nearestCol * 16
                     ghosts[i].y = ghosts[i].nearestRow * 16
-                    ghosts[i].currentPath = path.FindPath(
-                        (ghosts[i].nearestRow, ghosts[i].nearestCol),
-                        (thisLevel.GetGhostBoxPos()[0] + 1, thisLevel.GetGhostBoxPos()[1])
-                    )
-                    ghosts[i].FollowNextPathWay()
+                    ghosts[i].velX = 0
+                    ghosts[i].velY = 0
+                    ghosts[i].currentPath = ""
+                    box = thisLevel.GetGhostBoxPos()
+                    if box:
+                        ghosts[i].currentPath = path.FindPath(
+                            (ghosts[i].nearestRow, ghosts[i].nearestCol),
+                            (box[0] + 1, box[1]),
+                        )
+                        ghosts[i].FollowNextPathWay()
                 thisGame.SetMode(5)
                 return
         
@@ -978,8 +1187,8 @@ class pacman ():
         self.nearestRow = int(((self.y + 8) / 16))
         self.nearestCol = int(((self.x + 8) / 16))
             
-        # deal with power-pellet ghost timer (skipped on safe intro — ghosts stay blue)
-        if thisGame.ghostTimer > 0 and not thisGame.IsSafeLevel():
+        # deal with power-pellet ghost timer
+        if thisGame.ghostTimer > 0:
             thisGame.ghostTimer -= 1
             
             if thisGame.ghostTimer == 0:
@@ -988,7 +1197,7 @@ class pacman ():
                         ghosts[i].state = 1
                 thisGame.ghostValue = 0
                 
-        # deal with fruit timer (disabled on safe intro level)
+        # deal with fruit timer (disabled on level 1)
         if not thisGame.IsSafeLevel():
             thisGame.fruitTimer += 1
             if thisGame.fruitTimer == 500:
@@ -1134,7 +1343,6 @@ class level ():
                         
                         thisGame.AddToScore(100)
                         thisGame.ghostValue = 200
-                        
                         thisGame.ghostTimer = 360
                         for i in range(0, 4, 1):
                             if ghosts[i].state == 1:
@@ -1390,19 +1598,7 @@ class level ():
     def Restart (self):
         
         for i in range(0, 4, 1):
-            # move ghosts back to home (or hide them on the safe intro level)
-
-            if thisGame.IsSafeLevel():
-                ghosts[i].x = -64
-                ghosts[i].y = -64
-                ghosts[i].velX = 0
-                ghosts[i].velY = 0
-                ghosts[i].state = 4  # inactive / not drawn
-                ghosts[i].speed = 1
-                ghosts[i].currentPath = False
-                ghosts[i].nearestRow = -1
-                ghosts[i].nearestCol = -1
-                continue
+            # move ghosts back to home
 
             ghosts[i].x = ghosts[i].homeX
             ghosts[i].y = ghosts[i].homeY
@@ -1410,18 +1606,19 @@ class level ():
             ghosts[i].velY = 0
             ghosts[i].state = 1
             ghosts[i].speed = 1
-            ghosts[i].Move()
+            ghosts[i].nearestRow = int(ghosts[i].y / 16)
+            ghosts[i].nearestCol = int(ghosts[i].x / 16)
+            ghosts[i].currentPath = ""
             
-            # give each ghost a path to a random spot (containing a pellet)
-            (randRow, randCol) = (0, 0)
-
-            while not self.GetMapTile(randRow, randCol) == tileID[ 'pellet' ] or (randRow, randCol) == (0, 0):
-                randRow = random.randint(1, self.lvlHeight - 2)
-                randCol = random.randint(1, self.lvlWidth - 2)
-            
-            # print "Ghost " + str(i) + " headed towards " + str((randRow, randCol))
-            ghosts[i].currentPath = path.FindPath( (ghosts[i].nearestRow, ghosts[i].nearestCol), (randRow, randCol) )
-            ghosts[i].FollowNextPathWay()
+            # Continuous levels: seed a path. Level 1 StepOneCell reparths each turn.
+            if not thisGame.IsSafeLevel():
+                (randRow, randCol) = (0, 0)
+                while not self.GetMapTile(randRow, randCol) == tileID[ 'pellet' ] or (randRow, randCol) == (0, 0):
+                    randRow = random.randint(1, self.lvlHeight - 2)
+                    randCol = random.randint(1, self.lvlWidth - 2)
+                
+                ghosts[i].currentPath = path.FindPath( (ghosts[i].nearestRow, ghosts[i].nearestCol), (randRow, randCol) )
+                ghosts[i].FollowNextPathWay()
             
         thisFruit.active = False
             
@@ -1574,7 +1771,7 @@ AGENT_STATE_PATH = os.path.join(SCRIPT_PATH, "agent_state.json")
 
 
 def WriteAgentState():
-    """Export Pac-Man grid pose + wall map for external agents (MaaPacman)."""
+    """Export Pac-Man + ghost state for external agents (MaaPacman)."""
     try:
         row = int(player.nearestRow)
         col = int(player.nearestCol)
@@ -1598,6 +1795,34 @@ def WriteAgentState():
                 if thisLevel.IsWall(r, c):
                     walls.append([r, c])
 
+        ghost_names = ["blinky", "pinky", "inky", "sue"]
+        # 1=normal, 2=vulnerable, 3=eyes, 4=gone
+        state_names = {1: "normal", 2: "vulnerable", 3: "eyes", 4: "gone"}
+        ghost_list = []
+        for i in range(0, 4, 1):
+            g = ghosts[i]
+            gr = int(g.nearestRow)
+            gc = int(g.nearestCol)
+            st = int(g.state)
+            if st == 4 or gr < 0 or gc < 0:
+                ghost_list.append({
+                    "id": i,
+                    "name": ghost_names[i],
+                    "row": -1,
+                    "col": -1,
+                    "state": "gone",
+                    "vulnerable": False,
+                })
+                continue
+            ghost_list.append({
+                "id": i,
+                "name": ghost_names[i],
+                "row": gr,
+                "col": gc,
+                "state": state_names.get(st, "normal"),
+                "vulnerable": st == 2,
+            })
+
         facing = player.lastMoveDir if player.lastMoveDir in delta else "S"
         state = {
             "row": row,
@@ -1611,6 +1836,8 @@ def WriteAgentState():
             "blocked": blocked,
             "open": open_dirs,
             "walls": walls,
+            "ghosts": ghost_list,
+            "ghost_timer": int(thisGame.ghostTimer),
         }
         tmp = AGENT_STATE_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -1648,10 +1875,12 @@ while True:
         
         thisGame.modeTimer += 1
         player.Move()
-        if not thisGame.IsSafeLevel():
+        if thisGame.IsSafeLevel():
+            # Level 1: ghosts advance turn-based in player.TryMoveOneCell.
+            pass
+        else:
             for i in range(0, 4, 1):
                 ghosts[i].Move()
-            # After ghosts move: catch overlaps (ghost walking onto pacman)
             player.CheckGhostCollisions()
             thisFruit.Move()
             
@@ -1739,8 +1968,7 @@ while True:
                 thisGame.DrawNumber (2500, thisFruit.x - thisGame.screenPixelPos[0] - 16, thisFruit.y - thisGame.screenPixelPos[1] + 4)
 
         for i in range(0, 4, 1):
-            if not thisGame.IsSafeLevel():
-                ghosts[i].Draw()
+            ghosts[i].Draw()
         if not thisGame.IsSafeLevel():
             thisFruit.Draw()
         player.Draw()
