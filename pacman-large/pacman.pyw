@@ -301,25 +301,18 @@ class game:
             iDigit = int(strNumber[i])
             screen.blit(self.digit[iDigit], (x + i * SCORE_COLWIDTH, y))
 
+    def FitScreenToLevel(self):
+        """Resize the window to fit the entire level and lock the camera."""
+        global window, screen
+        self.screenTileSize = (thisLevel.lvlHeight, thisLevel.lvlWidth)
+        self.screenSize = (thisLevel.lvlWidth * TILE_WIDTH, thisLevel.lvlHeight * TILE_HEIGHT)
+        self.MoveScreen((0, 0))
+        window = pygame.display.set_mode(self.screenSize)
+        screen = pygame.display.get_surface()
+
     def SmartMoveScreen(self):
-        possibleScreenX = player.x - self.screenTileSize[1] / 2 * TILE_WIDTH
-        possibleScreenY = player.y - self.screenTileSize[0] / 2 * TILE_HEIGHT
-
-        if self.screenSize[0] >= thisLevel.lvlWidth * TILE_WIDTH:
-            possibleScreenX = -(self.screenSize[0] - thisLevel.lvlWidth * TILE_WIDTH) / 2
-        elif possibleScreenX < 0:
-            possibleScreenX = 0
-        elif possibleScreenX > thisLevel.lvlWidth * TILE_WIDTH - self.screenSize[0]:
-            possibleScreenX = thisLevel.lvlWidth * TILE_WIDTH - self.screenSize[0]
-
-        if self.screenSize[1] >= thisLevel.lvlHeight * TILE_HEIGHT:
-            possibleScreenY = -(self.screenSize[1] - thisLevel.lvlHeight * TILE_HEIGHT) / 2
-        elif possibleScreenY < 0:
-            possibleScreenY = 0
-        elif possibleScreenY > thisLevel.lvlHeight * TILE_HEIGHT - self.screenSize[1]:
-            possibleScreenY = thisLevel.lvlHeight * TILE_HEIGHT - self.screenSize[1]
-
-        thisGame.MoveScreen((possibleScreenX, possibleScreenY))
+        # Keep the full map visible; do not scroll the camera with Pacman.
+        self.MoveScreen((0, 0))
 
     def MoveScreen(self, newX_newY):
         (newX, newY) = newX_newY
@@ -1262,32 +1255,24 @@ class level:
         if self.powerPelletBlinkTimer == 40:
             self.powerPelletBlinkTimer = 0
 
-        for row in range(-1, thisGame.screenTileSize[0] + 1, 1):
-            for col in range(-1, thisGame.screenTileSize[1] + 1, 1):
+        for row in range(0, self.lvlHeight, 1):
+            for col in range(0, self.lvlWidth, 1):
 
-                # row containing tile that actually goes here
-                actualRow = thisGame.screenNearestTilePos[0] + row
-                actualCol = thisGame.screenNearestTilePos[1] + col
-
-                useTile = self.GetMapTile((actualRow, actualCol))
+                useTile = self.GetMapTile((row, col))
                 if useTile != 0 and useTile != tileID['door-h'] and useTile != tileID['door-v']:
                     # if this isn't a blank tile
                     if useTile == tileID['pellet-power']:
                         if self.powerPelletBlinkTimer < 20:
-                            screen.blit(tileIDImage[useTile], (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                               row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                            screen.blit(tileIDImage[useTile], (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     elif useTile == tileID['showlogo']:
-                        screen.blit(thisGame.imLogo, (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                      row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(thisGame.imLogo, (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     elif useTile == tileID['hiscores']:
-                        screen.blit(thisGame.imHiscores, (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                          row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(thisGame.imHiscores, (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     else:
-                        screen.blit(tileIDImage[useTile], (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                           row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(tileIDImage[useTile], (col * TILE_WIDTH, row * TILE_HEIGHT))
 
     def LoadLevel(self, levelNum):
         self.map = {}
@@ -1419,6 +1404,7 @@ class level:
 
         # do all the level-starting stuff
         self.Restart()
+        thisGame.FitScreenToLevel()
 
     def Restart(self):
         if thisGame.levelNum == 2:
