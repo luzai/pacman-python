@@ -11,6 +11,36 @@ SOURCE = ROOT / "pacman" / "pacman.pyw"
 LARGE_SOURCE = ROOT / "pacman-large" / "pacman.pyw"
 
 
+class CurriculumArgumentTests(unittest.TestCase):
+    def test_default_environment_and_cli_precedence(self) -> None:
+        namespace = load_classes("ParseCurriculum")
+        namespace.update({"os": __import__("os"), "DEFAULT_CURRICULUM": 2})
+        parser = namespace["ParseCurriculum"]
+        self.assertEqual(parser(["pacman.pyw"], {}), 2)
+        self.assertEqual(
+            parser(["pacman.pyw"], {"MAAPACMAN_CURRICULUM": "1"}), 1
+        )
+        self.assertEqual(
+            parser(
+                ["pacman.pyw", "--curriculum", "2"],
+                {"MAAPACMAN_CURRICULUM": "1"},
+            ),
+            2,
+        )
+
+    def test_invalid_curriculum_fails_closed(self) -> None:
+        namespace = load_classes("ParseCurriculum")
+        namespace.update({"os": __import__("os"), "DEFAULT_CURRICULUM": 2})
+        parser = namespace["ParseCurriculum"]
+        for argv in (
+            ["pacman.pyw", "--curriculum", "0"],
+            ["pacman.pyw", "--curriculum=3"],
+            ["pacman.pyw", "--curriculum"],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                parser(argv, {})
+
+
 def load_classes(*names: str, source: Path = SOURCE) -> dict[str, object]:
     tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
     selected = [
@@ -388,6 +418,7 @@ class SourceEventLedgerTests(unittest.TestCase):
             "GetGameLogicFrameScoreDelta",
         )
         self.game = self.namespace["game"].__new__(self.namespace["game"])
+        self.game.levelNum = 1
         self.game.score = 0
         self.game.lives = 3
         self.game.ghostTimer = 360
@@ -396,6 +427,7 @@ class SourceEventLedgerTests(unittest.TestCase):
         self.game.fruitTimer = 0
         self.game.fruitScoreTimer = 0
         self.namespace["thisGame"] = self.game
+        self.namespace["CURRICULUM_ID"] = 2
         self.namespace["player"] = SimpleNamespace(nearestRow=4, nearestCol=7)
         self.namespace["ghosts"] = {
             0: SimpleNamespace(state=3),
@@ -487,6 +519,97 @@ class SourceEventLedgerTests(unittest.TestCase):
              for event in events],
             [("power_pellet_eaten", 100, 360)],
         )
+
+    def test_curriculum_one_power_pellet_scores_without_ghost_timer(self) -> None:
+        level = self.namespace["level"]()
+        level.lvlWidth = 3
+        level.lvlHeight = 3
+        level.map = {(row * 3) + col: 0 for row in range(3) for col in range(3)}
+        level.SetMapTile(1, 1, 3)
+        self.namespace["thisLevel"] = level
+        self.namespace["tileID"] = {
+            "pellet": 2,
+            "pellet-power": 3,
+            "door-h": 20,
+            "door-v": 21,
+        }
+        self.namespace["snd_powerpellet"] = SimpleNamespace(play=lambda: None)
+        self.namespace["ghosts"] = {
+            index: SimpleNamespace(state=4) for index in range(4)
+        }
+        self.namespace["CURRICULUM_ID"] = 1
+        self.game.ghostTimer = 0
+        self.game.ghostTimerStartedFrame = -1
+        self.game.ghostValue = 0
+        self.namespace["BeginGameLogicFrame"]()
+
+        level.CheckIfHitSomething(16, 16, 1, 1)
+
+        self.assertEqual(self.game.score, 100)
+        self.assertEqual(self.game.ghostTimer, 0)
+        self.assertEqual(self.game.ghostTimerStartedFrame, -1)
+        self.assertEqual(self.game.ghostValue, 0)
+        self.assertTrue(
+            all(ghost.state == 4 for ghost in self.namespace["ghosts"].values())
+        )
+        self.assertEqual(
+            [event["type"] for event in self.namespace["DrainGameEvents"]()],
+            ["power_pellet_eaten"],
+        )
+
+    def test_curriculum_one_restart_keeps_four_inactive_ghosts_and_no_fruit(self) -> None:
+        level = self.namespace["level"]()
+        self.namespace["CURRICULUM_ID"] = 1
+        self.namespace["ghosts"] = {
+            index: SimpleNamespace(
+                x=16,
+                y=16,
+                velX=1,
+                velY=1,
+                state=1,
+                speed=2,
+                nearestRow=1,
+                nearestCol=1,
+                currentPath="RR",
+            )
+            for index in range(4)
+        }
+        self.namespace["thisFruit"] = SimpleNamespace(
+            active=True,
+            x=16,
+            y=16,
+            velX=1,
+            velY=1,
+            nearestRow=1,
+            nearestCol=1,
+            currentPath="R",
+        )
+        self.namespace["player"] = SimpleNamespace(
+            homeX=16,
+            homeY=32,
+            x=0,
+            y=0,
+            velX=1,
+            velY=1,
+            lastMoveDir="R",
+            SnapToGrid=lambda: None,
+            anim_pacmanS={},
+            anim_pacmanCurrent=None,
+            animFrame=0,
+        )
+
+        level.Restart()
+
+        self.assertEqual(len(self.namespace["ghosts"]), 4)
+        for ghost in self.namespace["ghosts"].values():
+            self.assertEqual((ghost.x, ghost.y), (-64, -64))
+            self.assertEqual((ghost.nearestRow, ghost.nearestCol), (-4, -4))
+            self.assertEqual((ghost.velX, ghost.velY), (0, 0))
+            self.assertEqual(ghost.state, 4)
+            self.assertIs(ghost.currentPath, False)
+        self.assertFalse(self.namespace["thisFruit"].active)
+        self.assertEqual(self.game.fruitTimer, 0)
+        self.assertEqual(self.game.ghostTimer, 0)
 
 
 if __name__ == "__main__":

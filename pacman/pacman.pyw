@@ -65,6 +65,7 @@ ghostcolor[4] = (50, 50, 255, 255) # blue, vulnerable ghost
 ghostcolor[5] = (255, 255, 255, 255) # white, flashing ghost
 
 DEFAULT_START_LEVEL = 1
+DEFAULT_CURRICULUM = 2
 
 # Source-of-truth event ledger. MaaPacman's worker drains this once after each
 # rendered logic frame; no event is inferred from before/after score snapshots.
@@ -154,12 +155,44 @@ def ParseStartLevel(argv):
         start = 1
     return start
 
+
+def ParseCurriculum(argv, environ=None):
+    """Return the explicit Level-1 curriculum selected for this process."""
+    if environ is None:
+        environ = os.environ
+    raw = environ.get("MAAPACMAN_CURRICULUM", str(DEFAULT_CURRICULUM))
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--curriculum":
+            if i + 1 >= len(argv):
+                raise ValueError("--curriculum requires 1 or 2")
+            raw = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--curriculum="):
+            raw = arg.split("=", 1)[1]
+        i += 1
+    try:
+        curriculum = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("curriculum must be 1 or 2")
+    if curriculum not in (1, 2):
+        raise ValueError("curriculum must be 1 or 2")
+    return curriculum
+
+
 START_LEVEL_NUM = ParseStartLevel(sys.argv)
+CURRICULUM_ID = ParseCurriculum(sys.argv)
 
 #      ___________________
 # ___/  class definitions  \_______________________________________________
 
 class game ():
+
+    def IsCurriculumOne(self):
+        """Whether Level 1 runs the safe pellet-only curriculum."""
+        return self.levelNum == 1 and CURRICULUM_ID == 1
 
     def defaulthiscorelist(self):
             return [ (100000,"David") , (80000,"Andy") , (60000,"Count Pacula") , (40000,"Cleopacra") , (20000,"Brett Favre") , (10000,"Sergei Pachmaninoff") ]
@@ -311,7 +344,8 @@ class game ():
         for i in range(0, self.lives, 1):
             screen.blit (self.imLife, (24 + i * 10 + 16, self.screenSize[1] - 12) )
 
-        screen.blit (thisFruit.imFruit[ thisFruit.fruitType ], (4 + 16, self.screenSize[1] - 20) )
+        if not self.IsCurriculumOne():
+            screen.blit (thisFruit.imFruit[ thisFruit.fruitType ], (4 + 16, self.screenSize[1] - 20) )
 
         if self.mode == 3:
             screen.blit (self.imGameOver, (self.screenSize[0] / 2 - 32, self.screenSize[1] / 2 - 10) )
@@ -1092,7 +1126,7 @@ class pacman ():
         self.nearestCol = int(((self.x + 8) / 16))
 
         # deal with power-pellet ghost timer
-        if thisGame.ghostTimer > 0:
+        if not thisGame.IsCurriculumOne() and thisGame.ghostTimer > 0:
             # CheckIfHitSomething runs before Move in the pellet-contact frame.
             # Do not spend one of the promised 360 logic ticks immediately.
             if thisGame.ghostTimerStartedFrame != GAME_LOGIC_FRAME:
@@ -1105,9 +1139,14 @@ class pacman ():
                 thisGame.ghostValue = 0
                 thisGame.ghostTimerStartedFrame = -1
 
-        # deal with fruit timer
-        thisGame.fruitTimer += 1
-        if thisGame.fruitTimer == 500:
+        # Curriculum 1 is pellet-only: fruit never spawns or advances.
+        if thisGame.IsCurriculumOne():
+            thisFruit.active = False
+            thisGame.fruitTimer = 0
+            thisGame.fruitScoreTimer = 0
+        else:
+            thisGame.fruitTimer += 1
+        if not thisGame.IsCurriculumOne() and thisGame.fruitTimer == 500:
             pathwayPair = thisLevel.GetPathwayPairPos()
 
             if not pathwayPair == False:
@@ -1261,13 +1300,13 @@ class level ():
                         thisLevel.SetMapTile(iRow, iCol, 0)
                         snd_powerpellet.play()
 
-                        thisGame.ghostValue = 200
-
-                        thisGame.ghostTimer = 360
-                        thisGame.ghostTimerStartedFrame = GAME_LOGIC_FRAME
-                        for i in range(0, 4, 1):
-                            if ghosts[i].state == 1:
-                                ghosts[i].state = 2
+                        if not thisGame.IsCurriculumOne():
+                            thisGame.ghostValue = 200
+                            thisGame.ghostTimer = 360
+                            thisGame.ghostTimerStartedFrame = GAME_LOGIC_FRAME
+                            for i in range(0, 4, 1):
+                                if ghosts[i].state == 1:
+                                    ghosts[i].state = 2
                         thisGame.AddToScore(
                             100, eventType="power_pellet_eaten"
                         )
@@ -1522,6 +1561,20 @@ class level ():
     def Restart (self):
 
         for i in range(0, 4, 1):
+            if thisGame.IsCurriculumOne():
+                # Preserve the four-ghost schema while removing every source
+                # of movement and collision from the safe curriculum.
+                ghosts[i].x = -64
+                ghosts[i].y = -64
+                ghosts[i].velX = 0
+                ghosts[i].velY = 0
+                ghosts[i].state = 4
+                ghosts[i].speed = 1
+                ghosts[i].nearestRow = -4
+                ghosts[i].nearestCol = -4
+                ghosts[i].currentPath = False
+                continue
+
             # move ghosts back to home
 
             ghosts[i].x = ghosts[i].homeX
@@ -1545,6 +1598,15 @@ class level ():
             ghosts[i].FollowNextPathWay()
 
         thisFruit.active = False
+
+        if thisGame.IsCurriculumOne():
+            thisFruit.x = -64
+            thisFruit.y = -64
+            thisFruit.velX = 0
+            thisFruit.velY = 0
+            thisFruit.nearestRow = -4
+            thisFruit.nearestCol = -4
+            thisFruit.currentPath = False
 
         thisGame.fruitTimer = 0
         thisGame.ghostTimer = 0
