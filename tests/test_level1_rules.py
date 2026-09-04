@@ -12,6 +12,29 @@ LARGE_SOURCE = ROOT / "pacman-large" / "pacman.pyw"
 
 
 class CurriculumArgumentTests(unittest.TestCase):
+    def test_ghost_switch_is_level_one_only_and_independent_of_fruit_curriculum(self) -> None:
+        namespace = load_classes("game")
+        namespace.update(CURRICULUM_ID=2, GHOST_MODE="disabled")
+        game_class = namespace["game"]
+        instance = game_class.__new__(game_class)
+        instance.levelNum = 1
+        self.assertTrue(instance.GhostsDisabled())
+        self.assertFalse(instance.IsCurriculumOne())
+        namespace["GHOST_MODE"] = "normal"
+        self.assertFalse(instance.GhostsDisabled())
+        namespace["GHOST_MODE"] = "disabled"
+        instance.levelNum = 2
+        self.assertFalse(instance.GhostsDisabled())
+
+    def test_independent_ghost_mode(self) -> None:
+        parser = load_classes("ParseGhostMode")["ParseGhostMode"]
+        self.assertEqual(parser(["game"]), "normal")
+        self.assertEqual(parser(["game", "--ghost-mode", "disabled"]), "disabled")
+        self.assertEqual(parser(["game", "--ghost-mode=normal"]), "normal")
+        for args in (["game", "--ghost-mode"], ["game", "--ghost-mode=bad"]):
+            with self.assertRaises(ValueError):
+                parser(args)
+
     def test_default_environment_and_cli_precedence(self) -> None:
         namespace = load_classes("ParseCurriculum")
         namespace.update({"os": __import__("os"), "DEFAULT_CURRICULUM": 2})
@@ -428,6 +451,7 @@ class SourceEventLedgerTests(unittest.TestCase):
         self.game.fruitScoreTimer = 0
         self.namespace["thisGame"] = self.game
         self.namespace["CURRICULUM_ID"] = 2
+        self.namespace["GHOST_MODE"] = "normal"
         self.namespace["player"] = SimpleNamespace(nearestRow=4, nearestCol=7)
         self.namespace["ghosts"] = {
             0: SimpleNamespace(state=3),

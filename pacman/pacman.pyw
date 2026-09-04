@@ -182,8 +182,24 @@ def ParseCurriculum(argv, environ=None):
     return curriculum
 
 
+def ParseGhostMode(argv):
+    """Independent ghost control; unlike legacy curriculum 1, keeps fruit."""
+    mode = "normal"
+    for index, argument in enumerate(argv[1:], 1):
+        if argument == "--ghost-mode":
+            if index + 1 >= len(argv):
+                raise ValueError("--ghost-mode requires disabled or normal")
+            mode = argv[index + 1]
+        elif argument.startswith("--ghost-mode="):
+            mode = argument.split("=", 1)[1]
+    if mode not in ("disabled", "normal"):
+        raise ValueError("--ghost-mode requires disabled or normal")
+    return mode
+
+
 START_LEVEL_NUM = ParseStartLevel(sys.argv)
 CURRICULUM_ID = ParseCurriculum(sys.argv)
+GHOST_MODE = ParseGhostMode(sys.argv)
 
 #      ___________________
 # ___/  class definitions  \_______________________________________________
@@ -193,6 +209,9 @@ class game ():
     def IsCurriculumOne(self):
         """Whether Level 1 runs the safe pellet-only curriculum."""
         return self.levelNum == 1 and CURRICULUM_ID == 1
+
+    def GhostsDisabled(self):
+        return self.IsCurriculumOne() or (self.levelNum == 1 and GHOST_MODE == "disabled")
 
     def defaulthiscorelist(self):
             return [ (100000,"David") , (80000,"Andy") , (60000,"Count Pacula") , (40000,"Cleopacra") , (20000,"Brett Favre") , (10000,"Sergei Pachmaninoff") ]
@@ -1126,7 +1145,7 @@ class pacman ():
         self.nearestCol = int(((self.x + 8) / 16))
 
         # deal with power-pellet ghost timer
-        if not thisGame.IsCurriculumOne() and thisGame.ghostTimer > 0:
+        if not thisGame.GhostsDisabled() and thisGame.ghostTimer > 0:
             # CheckIfHitSomething runs before Move in the pellet-contact frame.
             # Do not spend one of the promised 360 logic ticks immediately.
             if thisGame.ghostTimerStartedFrame != GAME_LOGIC_FRAME:
@@ -1300,7 +1319,7 @@ class level ():
                         thisLevel.SetMapTile(iRow, iCol, 0)
                         snd_powerpellet.play()
 
-                        if not thisGame.IsCurriculumOne():
+                        if not thisGame.GhostsDisabled():
                             thisGame.ghostValue = 200
                             thisGame.ghostTimer = 360
                             thisGame.ghostTimerStartedFrame = GAME_LOGIC_FRAME
@@ -1561,7 +1580,7 @@ class level ():
     def Restart (self):
 
         for i in range(0, 4, 1):
-            if thisGame.IsCurriculumOne():
+            if thisGame.GhostsDisabled():
                 # Preserve the four-ghost schema while removing every source
                 # of movement and collision from the safe curriculum.
                 ghosts[i].x = -64

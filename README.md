@@ -9,7 +9,16 @@ The game is derived from David Reilly's
 See the [original README](https://github.com/greyblue9/pacman-python/blob/master/README.md)
 for project history, installation details, controls, and the maze editor.
 
-## Curriculum modes
+## Ghost modes for the released AReaL recipe
+
+Use `--curriculum 2 --ghost-mode disabled` for navigation training and
+`--curriculum 2 --ghost-mode normal` for full gameplay. `--ghost-mode` defaults
+to `normal`. Only Level-1 ghosts change: disabled ghosts cannot move, render,
+collide, or become vulnerable; fruit and pellet rules remain unchanged.
+The paired wrapper exposes `ghosts: []` when disabled and the usual ghost
+records when normal. Internal inactive objects are retained for engine safety.
+
+## Legacy curriculum modes
 
 When driven through the paired `PygamePacmanEnv`, both modes advance up to 16
 game-logic frames for each RL action; a terminal state can stop the action early.
