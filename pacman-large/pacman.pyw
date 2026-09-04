@@ -30,7 +30,7 @@ from pygame.locals import *
 if os.name == "nt":
     SCRIPT_PATH = os.getcwd()
 else:
-    SCRIPT_PATH = sys.path[0]    
+    SCRIPT_PATH = sys.path[0]
 
 SCREEN_TILE_SIZE_HEIGHT = 23
 SCREEN_TILE_SIZE_WIDTH = 30
@@ -301,25 +301,18 @@ class game:
             iDigit = int(strNumber[i])
             screen.blit(self.digit[iDigit], (x + i * SCORE_COLWIDTH, y))
 
+    def FitScreenToLevel(self):
+        """Resize the window to fit the entire level and lock the camera."""
+        global window, screen
+        self.screenTileSize = (thisLevel.lvlHeight, thisLevel.lvlWidth)
+        self.screenSize = (thisLevel.lvlWidth * TILE_WIDTH, thisLevel.lvlHeight * TILE_HEIGHT)
+        self.MoveScreen((0, 0))
+        window = pygame.display.set_mode(self.screenSize)
+        screen = pygame.display.get_surface()
+
     def SmartMoveScreen(self):
-        possibleScreenX = player.x - self.screenTileSize[1] / 2 * TILE_WIDTH
-        possibleScreenY = player.y - self.screenTileSize[0] / 2 * TILE_HEIGHT
-
-        if self.screenSize[0] >= thisLevel.lvlWidth * TILE_WIDTH:
-            possibleScreenX = -(self.screenSize[0] - thisLevel.lvlWidth * TILE_WIDTH) / 2
-        elif possibleScreenX < 0:
-            possibleScreenX = 0
-        elif possibleScreenX > thisLevel.lvlWidth * TILE_WIDTH - self.screenSize[0]:
-            possibleScreenX = thisLevel.lvlWidth * TILE_WIDTH - self.screenSize[0]
-
-        if self.screenSize[1] >= thisLevel.lvlHeight * TILE_HEIGHT:
-            possibleScreenY = -(self.screenSize[1] - thisLevel.lvlHeight * TILE_HEIGHT) / 2
-        elif possibleScreenY < 0:
-            possibleScreenY = 0
-        elif possibleScreenY > thisLevel.lvlHeight * TILE_HEIGHT - self.screenSize[1]:
-            possibleScreenY = thisLevel.lvlHeight * TILE_HEIGHT - self.screenSize[1]
-
-        thisGame.MoveScreen((possibleScreenX, possibleScreenY))
+        # Keep the full map visible; do not scroll the camera with Pacman.
+        self.MoveScreen((0, 0))
 
     def MoveScreen(self, newX_newY):
         (newX, newY) = newX_newY
@@ -538,7 +531,7 @@ class path_finder:
 
     def CalcH(self, row_col):
         (row, col) = row_col
-        self.map[self.Unfold((row, col))].h = abs(row - self.end[0]) + abs(col - self.end[0])
+        self.map[self.Unfold((row, col))].h = abs(row - self.end[0]) + abs(col - self.end[1])
 
     def CalcF(self, row_col):
         (row, col) = row_col
@@ -561,12 +554,13 @@ class path_finder:
             return False
 
     def GetLowestFNode(self):
-        lowestValue = 1000  # start arbitrarily high
+        lowestValue = None
         lowestPair = (-1, -1)
 
         for iOrderedPair in self.openList:
-            if self.GetF(iOrderedPair) < lowestValue:
-                lowestValue = self.GetF(iOrderedPair)
+            fValue = self.GetF(iOrderedPair)
+            if lowestValue is None or fValue < lowestValue:
+                lowestValue = fValue
                 lowestPair = iOrderedPair
 
         if not lowestPair == (-1, -1):
@@ -1072,7 +1066,15 @@ class level:
             return 0
 
     @staticmethod
-    def IsWall(row_col):
+    def IsWall(row_col, actor="pacman"):
+        """Return whether ``actor`` is blocked by the requested tile.
+
+        The ghost-door tile is solid for Pac-Man but remains traversable for
+        ghosts.  Ghost pathfinding therefore uses ``actor="ghost"`` below.
+        """
+        if actor not in ("pacman", "ghost", "vulnerable", "eyes"):
+            raise ValueError("unknown maze actor: " + str(actor))
+
         (row, col) = row_col
         if row > thisLevel.lvlHeight - 1 or row < 0:
             return True
@@ -1083,13 +1085,16 @@ class level:
         # check the offending tile ID
         result = thisLevel.GetMapTile((row, col))
 
+        if result == tileID.get('ghost-door'):
+            return actor == "pacman"
+
         # if the tile was a wall
         if 100 <= result <= 199:
             return True
         else:
             return False
 
-    def CheckIfHitWall(self, possiblePlayerX_possiblePlayerY, row_col):
+    def CheckIfHitWall(self, possiblePlayerX_possiblePlayerY, row_col, actor="pacman"):
         (possiblePlayerX, possiblePlayerY) = possiblePlayerX_possiblePlayerY
         (row, col) = row_col
         numCollisions = 0
@@ -1103,7 +1108,7 @@ class level:
                         possiblePlayerY - (iRow * TILE_HEIGHT) < TILE_HEIGHT) and (
                         possiblePlayerY - (iRow * TILE_HEIGHT) > -TILE_HEIGHT):
 
-                    if self.IsWall((iRow, iCol)):
+                    if self.IsWall((iRow, iCol), actor=actor):
                         numCollisions += 1
 
         if numCollisions > 0:
@@ -1168,8 +1173,8 @@ class level:
                                 """
                                 # Must line up with grid before invoking a new path (for now)
                                 ghosts[i].x = ghosts[i].nearestCol * TILE_HEIGHT
-                                ghosts[i].y = ghosts[i].nearestRow * TILE_WIDTH								
-                                
+                                ghosts[i].y = ghosts[i].nearestRow * TILE_WIDTH
+
                                 # give each ghost a path to a random spot (containing a pellet)
                                 (randRow, randCol) = (0, 0)
 
@@ -1177,7 +1182,7 @@ class level:
                                     randRow = random.randint(1, self.lvlHeight - 2)
                                     randCol = random.randint(1, self.lvlWidth - 2)
                                 ghosts[i].currentPath = path.FindPath( (ghosts[i].nearestRow, ghosts[i].nearestCol), (randRow, randCol) )
-                                
+
                                 ghosts[i].FollowNextPathWay()
                                 """
 
@@ -1262,32 +1267,24 @@ class level:
         if self.powerPelletBlinkTimer == 40:
             self.powerPelletBlinkTimer = 0
 
-        for row in range(-1, thisGame.screenTileSize[0] + 1, 1):
-            for col in range(-1, thisGame.screenTileSize[1] + 1, 1):
+        for row in range(0, self.lvlHeight, 1):
+            for col in range(0, self.lvlWidth, 1):
 
-                # row containing tile that actually goes here
-                actualRow = thisGame.screenNearestTilePos[0] + row
-                actualCol = thisGame.screenNearestTilePos[1] + col
-
-                useTile = self.GetMapTile((actualRow, actualCol))
+                useTile = self.GetMapTile((row, col))
                 if useTile != 0 and useTile != tileID['door-h'] and useTile != tileID['door-v']:
                     # if this isn't a blank tile
                     if useTile == tileID['pellet-power']:
                         if self.powerPelletBlinkTimer < 20:
-                            screen.blit(tileIDImage[useTile], (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                               row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                            screen.blit(tileIDImage[useTile], (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     elif useTile == tileID['showlogo']:
-                        screen.blit(thisGame.imLogo, (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                      row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(thisGame.imLogo, (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     elif useTile == tileID['hiscores']:
-                        screen.blit(thisGame.imHiscores, (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                          row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(thisGame.imHiscores, (col * TILE_WIDTH, row * TILE_HEIGHT))
 
                     else:
-                        screen.blit(tileIDImage[useTile], (col * TILE_WIDTH - thisGame.screenPixelOffset[0],
-                                                           row * TILE_HEIGHT - thisGame.screenPixelOffset[1]))
+                        screen.blit(tileIDImage[useTile], (col * TILE_WIDTH, row * TILE_HEIGHT))
 
     def LoadLevel(self, levelNum):
         self.map = {}
@@ -1412,13 +1409,14 @@ class level:
 
         for row in range(0, path.size[0], 1):
             for col in range(0, path.size[1], 1):
-                if self.IsWall((row, col)):
+                if self.IsWall((row, col), actor="ghost"):
                     path.SetType((row, col), 1)
                 else:
                     path.SetType((row, col), 0)
 
         # do all the level-starting stuff
         self.Restart()
+        thisGame.FitScreenToLevel()
 
     def Restart(self):
         if thisGame.levelNum == 2:
