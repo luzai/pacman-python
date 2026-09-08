@@ -531,7 +531,7 @@ class path_finder:
 
     def CalcH(self, row_col):
         (row, col) = row_col
-        self.map[self.Unfold((row, col))].h = abs(row - self.end[0]) + abs(col - self.end[0])
+        self.map[self.Unfold((row, col))].h = abs(row - self.end[0]) + abs(col - self.end[1])
 
     def CalcF(self, row_col):
         (row, col) = row_col
@@ -554,12 +554,13 @@ class path_finder:
             return False
 
     def GetLowestFNode(self):
-        lowestValue = 1000  # start arbitrarily high
+        lowestValue = None
         lowestPair = (-1, -1)
 
         for iOrderedPair in self.openList:
-            if self.GetF(iOrderedPair) < lowestValue:
-                lowestValue = self.GetF(iOrderedPair)
+            fValue = self.GetF(iOrderedPair)
+            if lowestValue is None or fValue < lowestValue:
+                lowestValue = fValue
                 lowestPair = iOrderedPair
 
         if not lowestPair == (-1, -1):
@@ -1065,7 +1066,15 @@ class level:
             return 0
 
     @staticmethod
-    def IsWall(row_col):
+    def IsWall(row_col, actor="pacman"):
+        """Return whether ``actor`` is blocked by the requested tile.
+
+        The ghost-door tile is solid for Pac-Man but remains traversable for
+        ghosts.  Ghost pathfinding therefore uses ``actor="ghost"`` below.
+        """
+        if actor not in ("pacman", "ghost", "vulnerable", "eyes"):
+            raise ValueError("unknown maze actor: " + str(actor))
+
         (row, col) = row_col
         if row > thisLevel.lvlHeight - 1 or row < 0:
             return True
@@ -1076,13 +1085,16 @@ class level:
         # check the offending tile ID
         result = thisLevel.GetMapTile((row, col))
 
+        if result == tileID.get('ghost-door'):
+            return actor == "pacman"
+
         # if the tile was a wall
         if 100 <= result <= 199:
             return True
         else:
             return False
 
-    def CheckIfHitWall(self, possiblePlayerX_possiblePlayerY, row_col):
+    def CheckIfHitWall(self, possiblePlayerX_possiblePlayerY, row_col, actor="pacman"):
         (possiblePlayerX, possiblePlayerY) = possiblePlayerX_possiblePlayerY
         (row, col) = row_col
         numCollisions = 0
@@ -1096,7 +1108,7 @@ class level:
                         possiblePlayerY - (iRow * TILE_HEIGHT) < TILE_HEIGHT) and (
                         possiblePlayerY - (iRow * TILE_HEIGHT) > -TILE_HEIGHT):
 
-                    if self.IsWall((iRow, iCol)):
+                    if self.IsWall((iRow, iCol), actor=actor):
                         numCollisions += 1
 
         if numCollisions > 0:
@@ -1397,7 +1409,7 @@ class level:
 
         for row in range(0, path.size[0], 1):
             for col in range(0, path.size[1], 1):
-                if self.IsWall((row, col)):
+                if self.IsWall((row, col), actor="ghost"):
                     path.SetType((row, col), 1)
                 else:
                     path.SetType((row, col), 0)
