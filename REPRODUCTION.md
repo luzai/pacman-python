@@ -2,8 +2,9 @@
 
 This clean-history branch preserves the `pacman/` subtree from
 `d258122eecf6e0dc0a04d6fb8ff57a9b43f0c1d8`, plus its original README attribution.
-No game logic changes are made for publication. Other game variants and editor
-assets are intentionally not included. Some links/images in the historical
+No game logic changes are made for publication. Other game variants and the
+top-level editor project are not included; the original executable inside
+`pacman/` is retained as part of the unchanged subtree. Some links/images in the historical
 README refer to the original full repository layout.
 
 Recipe: [repro/c1-iter25-lineage](https://github.com/luzai/areal-pacman/tree/repro/c1-iter25-lineage).
