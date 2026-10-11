@@ -197,9 +197,31 @@ def ParseGhostMode(argv):
     return mode
 
 
+def ParseActiveGhostCount(argv, environ=None):
+    """Level-1 active ghosts; retain the experiment's environment contract."""
+    environ = os.environ if environ is None else environ
+    raw = environ.get("SMALL_MAZE_GHOST_COUNT", "4")
+    for index, argument in enumerate(argv[1:], 1):
+        if argument == "--active-ghost-count":
+            if index + 1 >= len(argv):
+                raise ValueError("--active-ghost-count requires 1, 2 or 4")
+            raw = argv[index + 1]
+        elif argument.startswith("--active-ghost-count="):
+            raw = argument.split("=", 1)[1]
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("active ghost count must be 1, 2 or 4")
+    if count not in (1, 2, 4):
+        raise ValueError("active ghost count must be 1, 2 or 4")
+    return count
+
+
 START_LEVEL_NUM = ParseStartLevel(sys.argv)
 CURRICULUM_ID = ParseCurriculum(sys.argv)
 GHOST_MODE = ParseGhostMode(sys.argv)
+ACTIVE_GHOST_COUNT = ParseActiveGhostCount(sys.argv)
+CUSTOM_WALL_RENDER = os.environ.get("PACMAN_CUSTOM_WALL_RENDER", "0") == "1"
 
 #      ___________________
 # ___/  class definitions  \_______________________________________________
@@ -212,6 +234,11 @@ class game ():
 
     def GhostsDisabled(self):
         return self.IsCurriculumOne() or (self.levelNum == 1 and GHOST_MODE == "disabled")
+
+    def ActiveGhostCount(self):
+        if self.GhostsDisabled():
+            return 0
+        return ACTIVE_GHOST_COUNT if self.levelNum == 1 else 4
 
     def defaulthiscorelist(self):
             return [ (100000,"David") , (80000,"Andy") , (60000,"Count Pacula") , (40000,"Cleopacra") , (20000,"Brett Favre") , (10000,"Sergei Pachmaninoff") ]
@@ -944,6 +971,13 @@ class fruit ():
         if self.active == False:
             return False
 
+        # Disconnected custom fruit routes are reported as False by FindPath.
+        if self.currentPath is False:
+            self.active = False
+            thisGame.fruitTimer = 0
+            self.velX = self.velY = 0
+            return False
+
         self.bouncei += 1
         if self.bouncei == 1:
             self.bounceY = 2
@@ -1418,6 +1452,9 @@ class level ():
             for col in range(0, self.lvlWidth, 1):
 
                 useTile = self.GetMapTile(row, col)
+                if CUSTOM_WALL_RENDER and 100 <= useTile <= 199:
+                    pygame.draw.rect(screen, thisLevel.edgeLightColor, (col * 16, row * 16, 16, 16), 2)
+                    continue
                 if not useTile == 0 and not useTile == tileID['door-h'] and not useTile == tileID['door-v']:
                     # if this isn't a blank tile
 
@@ -1580,7 +1617,7 @@ class level ():
     def Restart (self):
 
         for i in range(0, 4, 1):
-            if thisGame.GhostsDisabled():
+            if i >= thisGame.ActiveGhostCount():
                 # Preserve the four-ghost schema while removing every source
                 # of movement and collision from the safe curriculum.
                 ghosts[i].x = -64

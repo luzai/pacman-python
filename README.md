@@ -18,6 +18,23 @@ collide, or become vulnerable; fruit and pellet rules remain unchanged.
 The paired wrapper exposes `ghosts: []` when disabled and the usual ghost
 records when normal. Internal inactive objects are retained for engine safety.
 
+## Custom Level-1 mazes
+
+`--active-ghost-count 1`, `2`, or `4` selects the active ghost count for Level 1
+(default: 4). `SMALL_MAZE_GHOST_COUNT` supplies the same setting; an explicit CLI
+argument wins. Disabled ghost mode and curriculum 1 still disable all ghosts.
+Later levels retain four ghosts. Inactive ghost objects remain off-map and
+non-colliding for engine compatibility. The paired recipe's observation and
+ruleset contracts must use the same count.
+
+Set `PACMAN_CUSTOM_WALL_RENDER=1` to draw custom wall tiles 100–199 as outlines
+without relying on their original-maze sprite orientation. Default rendering is
+unchanged. Unreachable fruit paths now deactivate the fruit instead of trying
+to index a failed path; reachable movement, score, and pellet rules are unchanged.
+
+Use a private game directory for generated maps. Do not replace the bundled
+`pacman/res/levels/1.txt` to publish a training layout or modify a frozen run.
+
 ## Legacy curriculum modes
 
 When driven through the paired `PygamePacmanEnv`, both modes advance up to 16
