@@ -56,3 +56,10 @@ Then choose the matching curriculum configuration in
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## Optional fruit switch
+
+Set `PACMAN_DISABLE_FRUIT=1` to disable fruit spawning, movement, and rendering.
+The default is `0`, preserving fruit-enabled gameplay. An unreachable fruit path
+now cancels that fruit attempt safely instead of calling `len(False)`.
+This switch does not disable ghosts or power pellets.

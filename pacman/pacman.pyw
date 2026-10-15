@@ -363,7 +363,7 @@ class game ():
         for i in range(0, self.lives, 1):
             screen.blit (self.imLife, (24 + i * 10 + 16, self.screenSize[1] - 12) )
 
-        if not self.IsCurriculumOne():
+        if not self.IsCurriculumOne() and not fruit_disabled():
             screen.blit (thisFruit.imFruit[ thisFruit.fruitType ], (4 + 16, self.screenSize[1] - 20) )
 
         if self.mode == 3:
@@ -907,6 +907,9 @@ class ghost ():
             else:
                 self.velX = 0
                 self.velY = 0
+def fruit_disabled():
+    return os.environ.get("PACMAN_DISABLE_FRUIT", "0") == "1"
+
 class fruit ():
     def __init__ (self):
         # when fruit is not in use, it's in the (-1, -1) position off-screen.
@@ -933,7 +936,7 @@ class fruit ():
 
     def Draw (self):
 
-        if thisGame.mode == 3 or self.active == False:
+        if fruit_disabled() or thisGame.mode == 3 or self.active == False:
             return False
 
         screen.blit (self.imFruit[ self.fruitType ], (self.x - thisGame.screenPixelPos[0], self.y - thisGame.screenPixelPos[1] - self.bounceY))
@@ -941,7 +944,17 @@ class fruit ():
 
     def Move (self):
 
+        if fruit_disabled():
+            self.active = False
+            self.velX = self.velY = 0
+            thisGame.fruitTimer = 0
+            return False
+
         if self.active == False:
+            return False
+
+        if self.currentPath is False:
+            self.FollowNextPathWay()
             return False
 
         self.bouncei += 1
@@ -1003,6 +1016,15 @@ class fruit ():
 
     def FollowNextPathWay (self):
 
+
+        # FindPath returns False when no ordinary route exists.
+        # Cancel this fruit attempt; never move using stale velocity.
+        if self.currentPath is False:
+            self.currentPath = ""
+            self.active = False
+            self.velX = self.velY = 0
+            thisGame.fruitTimer = 0
+            return False
 
         # only follow this pathway if there is a possible path found!
         if not self.currentPath == False:
@@ -1159,13 +1181,13 @@ class pacman ():
                 thisGame.ghostTimerStartedFrame = -1
 
         # Curriculum 1 is pellet-only: fruit never spawns or advances.
-        if thisGame.IsCurriculumOne():
+        if thisGame.IsCurriculumOne() or fruit_disabled():
             thisFruit.active = False
             thisGame.fruitTimer = 0
             thisGame.fruitScoreTimer = 0
         else:
             thisGame.fruitTimer += 1
-        if not thisGame.IsCurriculumOne() and thisGame.fruitTimer == 500:
+        if not thisGame.IsCurriculumOne() and not fruit_disabled() and thisGame.fruitTimer == 500:
             pathwayPair = thisLevel.GetPathwayPairPos()
 
             if not pathwayPair == False:

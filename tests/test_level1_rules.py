@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,9 +70,9 @@ def load_classes(*names: str, source: Path = SOURCE) -> dict[str, object]:
     selected = [
         node
         for node in tree.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in {*names, "fruit_disabled"}
     ]
-    namespace: dict[str, object] = {}
+    namespace: dict[str, object] = {"os": os}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), namespace)
     return namespace
 
