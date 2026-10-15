@@ -12,6 +12,13 @@ def load():
  return f,ns
 
 class FruitRegressionTests(unittest.TestCase):
+ def test_fruit_disabled_by_default_with_explicit_enable_override(self):
+  with patch.dict(os.environ):
+   os.environ.pop('PACMAN_DISABLE_FRUIT',None)
+   f,ns=load();self.assertTrue(ns['fruit_disabled']())
+   f.currentPath='RR';f.Move();self.assertFalse(f.active);self.assertIs(f.Draw(),False)
+   os.environ['PACMAN_DISABLE_FRUIT']='0'
+   self.assertFalse(ns['fruit_disabled']())
  def test_no_route_cancels_before_grid_and_clears_stale_velocity(self):
   with patch.dict(os.environ,{'PACMAN_DISABLE_FRUIT':'0'}):
    for x in [16,17,31]:
@@ -26,7 +33,7 @@ class FruitRegressionTests(unittest.TestCase):
  def test_disabled_fruit_neither_moves_nor_draws(self):
   with patch.dict(os.environ,{'PACMAN_DISABLE_FRUIT':'1'}):
    f,ns=load();f.currentPath='RR';f.Move();self.assertIs(f.Draw(),False);self.assertFalse(f.active);self.assertEqual((f.x,f.y,f.velX,f.velY),(16,16,0,0))
- def test_disabled_hud_hides_icon_but_default_keeps_it(self):
+ def test_disabled_hud_hides_icon_but_explicit_enable_keeps_it(self):
   for disabled in ['0','1']:
    with self.subTest(disabled=disabled),patch.dict(os.environ,{'PACMAN_DISABLE_FRUIT':disabled}):
     _,ns=load();draw=[];ns['screen']=SimpleNamespace(blit=lambda *args:draw.append(args));ns['thisFruit']=SimpleNamespace(imFruit={0:object()},fruitType=0)

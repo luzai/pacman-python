@@ -26,7 +26,7 @@ game-logic frames for each RL action; a terminal state can stop the action early
 | Mode | Level-1 behavior |
 | --- | --- |
 | `--curriculum 1` | Safe pellet collection. Four ghost objects remain in the state schema but stay `gone`, off-map, motionless, and non-colliding. Fruit is disabled. Power pellets give their normal score but do not make ghosts vulnerable. |
-| `--curriculum 2` | Full `ghostdoor-v3` behavior with active ghosts, power-pellet vulnerability, and fruit. This is the default. |
+| `--curriculum 2` | Full `ghostdoor-v3` behavior with active ghosts and power-pellet vulnerability. Fruit is disabled by default; set `PACMAN_DISABLE_FRUIT=0` to enable it. This is the default curriculum. |
 
 These curriculum changes apply only to Level 1.
 
@@ -59,7 +59,8 @@ python -m unittest discover -s tests -v
 
 ## Optional fruit switch
 
-Set `PACMAN_DISABLE_FRUIT=1` to disable fruit spawning, movement, and rendering.
-The default is `0`, preserving fruit-enabled gameplay. An unreachable fruit path
+Fruit spawning, movement, and rendering are disabled by default
+(`PACMAN_DISABLE_FRUIT=1`). Set `PACMAN_DISABLE_FRUIT=0` to enable fruit explicitly.
+An unreachable fruit path
 now cancels that fruit attempt safely instead of calling `len(False)`.
 This switch does not disable ghosts or power pellets.

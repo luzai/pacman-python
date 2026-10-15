@@ -908,7 +908,7 @@ class ghost ():
                 self.velX = 0
                 self.velY = 0
 def fruit_disabled():
-    return os.environ.get("PACMAN_DISABLE_FRUIT", "0") == "1"
+    return os.environ.get("PACMAN_DISABLE_FRUIT", "1") == "1"
 
 class fruit ():
     def __init__ (self):
