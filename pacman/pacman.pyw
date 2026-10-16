@@ -213,6 +213,15 @@ class game ():
     def GhostsDisabled(self):
         return self.IsCurriculumOne() or (self.levelNum == 1 and GHOST_MODE == "disabled")
 
+    def ActiveGhostCount(self):
+        """Apply the small-maze count to engine objects, not only observations."""
+        if self.levelNum != 1:
+            return 4
+        count = int(os.environ.get("SMALL_MAZE_GHOST_COUNT", "4"))
+        if count not in (1, 2, 4):
+            raise ValueError("active ghost count must be 1, 2 or 4")
+        return count
+
     def defaulthiscorelist(self):
             return [ (100000,"David") , (80000,"Andy") , (60000,"Count Pacula") , (40000,"Cleopacra") , (20000,"Brett Favre") , (10000,"Sergei Pachmaninoff") ]
 
@@ -1602,7 +1611,7 @@ class level ():
     def Restart (self):
 
         for i in range(0, 4, 1):
-            if thisGame.GhostsDisabled():
+            if thisGame.GhostsDisabled() or i >= thisGame.ActiveGhostCount():
                 # Preserve the four-ghost schema while removing every source
                 # of movement and collision from the safe curriculum.
                 ghosts[i].x = -64

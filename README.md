@@ -18,6 +18,13 @@ collide, or become vulnerable; fruit and pellet rules remain unchanged.
 The paired wrapper exposes `ghosts: []` when disabled and the usual ghost
 records when normal. Internal inactive objects are retained for engine safety.
 
+For Level 1, `SMALL_MAZE_GHOST_COUNT=1`, `2`, or `4` controls the active
+ghosts (default `4`). Remaining objects are placed off-map in inactive state
+on every restart: they cannot move, render, collide, or become vulnerable.
+The paired wrapper rejects active ghosts omitted from its observation. This
+fix changes reduced-ghost gameplay; regenerate source identities and datasets
+for new runs rather than applying it to historical runs or saved states.
+
 ## Legacy curriculum modes
 
 When driven through the paired `PygamePacmanEnv`, both modes advance up to 16
